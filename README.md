@@ -27,14 +27,6 @@ pip install -r requirements.txt
 pip install streamlit pandas plotly numpy
 ```
 
-## Validação (Opcional)
-
-Antes de executar, você pode validar se tudo está correto:
-
-```powershell
-python validar.py
-```
-
 ## Execução
 
 No diretório do projeto, execute:
@@ -52,7 +44,6 @@ Para encerrar, pressione `Ctrl+C` no terminal.
 ```
 DashboardIntegrado/
 ├── dashboard.py          # Código principal do dashboard
-├── validar.py           # Script de validação
 ├── requirements.txt     # Dependências do projeto
 ├── FCD_estoque.csv      # Dados de estoque
 ├── FCD_vendas.csv       # Dados de vendas
