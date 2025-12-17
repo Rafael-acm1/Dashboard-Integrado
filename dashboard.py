@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 import numpy as np
 
-# Configuração da página
+
 st.set_page_config(
     page_title="Super-Dashboard Integrado",
     page_icon="📊",
@@ -13,7 +13,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Estilo customizado
 st.markdown("""
     <style>
     .main {
@@ -31,8 +30,11 @@ st.markdown("""
     .stMarkdown {
         color: #e0e0e0;
     }
-    h1, h2, h3, h4, h5, h6 {
+    h1, h2, h4, h5, h6 {
         color: #4da6ff !important;
+    }
+    h3{
+        color: #69C6DB !important;
     }
     .stSelectbox label, .stMultiSelect label, .stDateInput label {
         color: #e0e0e0 !important;
@@ -60,45 +62,26 @@ def carregar_dados():
     df_estoque = pd.read_csv('FCD_estoque.csv', sep=';', encoding='utf-8')
     df_vendas = pd.read_csv('FCD_vendas.csv', sep=';', encoding='utf-8')
     df_compras = pd.read_csv('FCD_compras.csv', sep=';', encoding='utf-8')
+    df_produtos = pd.read_csv('FCD_produtos.csv', sep=';', encoding='utf-8')
     
     df_estoque['data_referencia'] = pd.to_datetime(df_estoque['data_referencia'])
     df_vendas['data_venda'] = pd.to_datetime(df_vendas['data_venda'], format='%d/%m/%Y')
     df_compras['data_compra'] = pd.to_datetime(df_compras['data_compra'], format='%d/%m/%Y')
     
-    produtos_unicos = sorted(set(df_estoque['produto_id'].unique()) | 
-                            set(df_vendas['produto_id'].unique()) | 
-                            set(df_compras['produto_id'].unique()))
-    
-    categorias = {
-        'Peças de Motor': range(1, 21),
-        'Sistema de Freios': range(21, 41),
-        'Suspensão': range(41, 61),
-        'Sistema Elétrico': range(61, 81),
-        'Transmissão': range(81, 101),
-        'Acessórios': range(101, 151)
-    }
-    
-    def obter_categoria(pid):
-        for cat, faixa in categorias.items():
-            if pid in faixa:
-                return cat
-        return 'Outros'
-    
-    df_produtos = pd.DataFrame({
-        'produto_id': produtos_unicos,
-        'nome_produto': [f'Produto {pid:03d}' for pid in produtos_unicos],
-        'categoria': [obter_categoria(pid) for pid in produtos_unicos]
+    df_produtos = df_produtos.rename(columns={
+        'produto_nome': 'nome_produto',
+        'preco_unitario': 'valor_unitario_estoque'
     })
     
-    valor_medio_compra = df_compras.groupby('produto_id')['valor_unitario'].mean().reset_index()
-    valor_medio_compra.columns = ['produto_id', 'valor_unitario_estoque']
-    
-    df_produtos = df_produtos.merge(valor_medio_compra, on='produto_id', how='left')
-    df_produtos['valor_unitario_estoque'].fillna(50, inplace=True)
+    df_produtos = df_produtos[['produto_id', 'nome_produto', 'categoria', 'valor_unitario_estoque']]
     
     return df_estoque, df_vendas, df_compras, df_produtos
 
 df_estoque, df_vendas, df_compras, df_produtos = carregar_dados()
+
+
+idx = df_estoque.groupby(["produto_id", "localizacao"])["data_referencia"].idxmax()
+df_estoque = df_estoque.loc[idx]
 
 df_estoque = df_estoque.merge(df_produtos, on='produto_id', how='left')
 df_vendas = df_vendas.merge(df_produtos, on='produto_id', how='left')
@@ -114,19 +97,41 @@ st.markdown("---")
 
 st.sidebar.markdown("## Filtros")
 
-categorias_disponiveis = ['Todas'] + sorted(df_produtos['categoria'].unique().tolist())
-categoria_selecionada = st.sidebar.selectbox('Categoria', categorias_disponiveis)
+categorias_disponiveis = sorted(df_produtos['categoria'].unique().tolist())
+categorias_selecionadas = st.sidebar.multiselect('Categoria', categorias_disponiveis, default=categorias_disponiveis)
 
-if categoria_selecionada == 'Todas':
-    produtos_filtrados = df_produtos
+if len(categorias_selecionadas) > 0:
+    produtos_filtrados = df_produtos[df_produtos['categoria'].isin(categorias_selecionadas)]
 else:
-    produtos_filtrados = df_produtos[df_produtos['categoria'] == categoria_selecionada]
+    produtos_filtrados = df_produtos
 
-produtos_disponiveis = ['Todos'] + produtos_filtrados['nome_produto'].tolist()
-produto_selecionado = st.sidebar.selectbox('▸ Produto', produtos_disponiveis)
 
-lojas_disponiveis = ['Todas'] + sorted(df_vendas['loja_id'].unique().tolist())
-loja_selecionada = st.sidebar.selectbox('● Loja', lojas_disponiveis)
+produtos_disponiveis = sorted(produtos_filtrados['nome_produto'].tolist())
+if len(produtos_disponiveis) > 0:
+    produtos_selecionados = st.sidebar.multiselect(
+        'Produto', 
+        produtos_disponiveis, 
+        default=[],  
+        help=f"Deixe vazio para incluir todos. {len(produtos_disponiveis)} produtos disponíveis"
+    )
+
+    if len(produtos_selecionados) == 0:
+        st.sidebar.caption(f"✓ Todos os {len(produtos_disponiveis)} produtos selecionados")
+        produtos_selecionados = produtos_disponiveis 
+    else:
+        st.sidebar.caption(f"{len(produtos_selecionados)} de {len(produtos_disponiveis)} produtos selecionados")
+else:
+    produtos_selecionados = []
+
+
+
+loja_nomes = {1: 'Loja 1', 2: 'Loja 2', 3: 'Depósito Central'}
+lojas_ids = sorted(df_vendas['loja_id'].unique().tolist())
+lojas_disponiveis = [loja_nomes.get(loja_id, f'Loja {loja_id}') for loja_id in lojas_ids]
+lojas_selecionadas_nomes = st.sidebar.multiselect('Loja', lojas_disponiveis, default=lojas_disponiveis)
+
+loja_nomes_invertido = {v: k for k, v in loja_nomes.items()}
+lojas_selecionadas = [loja_nomes_invertido[nome] for nome in lojas_selecionadas_nomes]
 
 
 st.sidebar.markdown("### Período")
@@ -144,19 +149,19 @@ df_estoque_filtrado = df_estoque.copy()
 df_vendas_filtrado = df_vendas.copy()
 df_compras_filtrado = df_compras.copy()
 
-if categoria_selecionada != 'Todas':
-    df_estoque_filtrado = df_estoque_filtrado[df_estoque_filtrado['categoria'] == categoria_selecionada]
-    df_vendas_filtrado = df_vendas_filtrado[df_vendas_filtrado['categoria'] == categoria_selecionada]
-    df_compras_filtrado = df_compras_filtrado[df_compras_filtrado['categoria'] == categoria_selecionada]
+if len(categorias_selecionadas) > 0:
+    df_estoque_filtrado = df_estoque_filtrado[df_estoque_filtrado['categoria'].isin(categorias_selecionadas)]
+    df_vendas_filtrado = df_vendas_filtrado[df_vendas_filtrado['categoria'].isin(categorias_selecionadas)]
+    df_compras_filtrado = df_compras_filtrado[df_compras_filtrado['categoria'].isin(categorias_selecionadas)]
 
-if produto_selecionado != 'Todos':
-    produto_id_sel = df_produtos[df_produtos['nome_produto'] == produto_selecionado]['produto_id'].values[0]
-    df_estoque_filtrado = df_estoque_filtrado[df_estoque_filtrado['produto_id'] == produto_id_sel]
-    df_vendas_filtrado = df_vendas_filtrado[df_vendas_filtrado['produto_id'] == produto_id_sel]
-    df_compras_filtrado = df_compras_filtrado[df_compras_filtrado['produto_id'] == produto_id_sel]
+if len(produtos_selecionados) > 0:
+    produtos_ids = df_produtos[df_produtos['nome_produto'].isin(produtos_selecionados)]['produto_id'].values
+    df_estoque_filtrado = df_estoque_filtrado[df_estoque_filtrado['produto_id'].isin(produtos_ids)]
+    df_vendas_filtrado = df_vendas_filtrado[df_vendas_filtrado['produto_id'].isin(produtos_ids)]
+    df_compras_filtrado = df_compras_filtrado[df_compras_filtrado['produto_id'].isin(produtos_ids)]
 
-if loja_selecionada != 'Todas':
-    df_vendas_filtrado = df_vendas_filtrado[df_vendas_filtrado['loja_id'] == loja_selecionada]
+if len(lojas_selecionadas) > 0:
+    df_vendas_filtrado = df_vendas_filtrado[df_vendas_filtrado['loja_id'].isin(lojas_selecionadas)]
 
 df_vendas_filtrado = df_vendas_filtrado[
     (df_vendas_filtrado['data_venda'] >= pd.to_datetime(data_inicio)) &
@@ -170,7 +175,7 @@ df_compras_filtrado = df_compras_filtrado[
 
 
 st.markdown("### Indicadores Principais")
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
     receita_total = df_vendas_filtrado['valor_total'].sum()
@@ -181,19 +186,37 @@ with col2:
     st.metric("Valor do Estoque", f"R$ {valor_estoque:,.2f}")
 
 with col3:
-    gasto_compras = df_compras_filtrado[df_compras_filtrado['status_compra'] == 'Entregue']['valor_total'].sum()
+    gasto_compras = df_compras_filtrado['valor_total'].sum()
     st.metric("Gasto em Compras", f"R$ {gasto_compras:,.2f}")
 
 with col4:
-    produtos_criticos = len(df_estoque_filtrado[df_estoque_filtrado['quantidade_estoque'] < df_estoque_filtrado['estoque_minimo']])
+   
+    estoque_por_produto = df_estoque_filtrado.groupby('produto_id').agg({
+        'quantidade_estoque': 'sum',
+        'estoque_minimo': 'sum'  
+    }).reset_index()
+    produtos_criticos = len(estoque_por_produto[estoque_por_produto['quantidade_estoque'] < estoque_por_produto['estoque_minimo']])
     st.metric("Produtos Críticos", produtos_criticos)
+
+with col5:
+    compras_entregues = df_compras_filtrado[df_compras_filtrado['status_compra'] == 'Entregue']
+    if len(compras_entregues) > 0:
+        prazo_medio = compras_entregues['prazo_entrega_dias'].mean()
+        st.metric("Prazo Médio de Reposição", f"{prazo_medio:.1f} dias")
+    else:
+        st.metric("Prazo Médio de Reposição", "N/A")
 
 st.markdown("---")
 
-if produto_selecionado != 'Todos':
-    st.markdown("Visão 360° do Produto")
+if len(produtos_selecionados) == 1:
+    st.markdown("### Visão 360° do Produto")
+elif len(produtos_selecionados) == 0 or len(produtos_selecionados) > 1:
+    st.info("**Dica:** Selecione somente 1 produto no filtro na barra lateral   para visualizar a **Visão 360° do Produto** com detalhes completos.")
+    st.markdown("---")
+
+if len(produtos_selecionados) == 1:
     
-    produto_id_sel = df_produtos[df_produtos['nome_produto'] == produto_selecionado]['produto_id'].values[0]
+    produto_id_sel = df_produtos[df_produtos['nome_produto'] == produtos_selecionados[0]]['produto_id'].values[0]
     
     col1, col2, col3 = st.columns(3)
     
@@ -246,13 +269,19 @@ tab1, tab2, tab3, tab4 = st.tabs(["Produtos Críticos", "Top 10 Vendas", "Maiore
 with tab1:
     st.markdown("Produtos com Estoque Crítico (Abaixo do Mínimo)")
     
-    df_criticos = df_estoque_filtrado[df_estoque_filtrado['quantidade_estoque'] < df_estoque_filtrado['estoque_minimo']].copy()
+   
+    estoque_agrupado = df_estoque_filtrado.groupby(['produto_id', 'nome_produto', 'categoria']).agg({
+        'quantidade_estoque': 'sum',
+        'estoque_minimo': 'sum'
+    }).reset_index()
+    
+    df_criticos = estoque_agrupado[estoque_agrupado['quantidade_estoque'] < estoque_agrupado['estoque_minimo']].copy()
     df_criticos['deficit'] = df_criticos['estoque_minimo'] - df_criticos['quantidade_estoque']
     df_criticos = df_criticos.sort_values('deficit', ascending=False)
     
     if len(df_criticos) > 0:
-        df_criticos_display = df_criticos[['nome_produto', 'categoria', 'quantidade_estoque', 'estoque_minimo', 'deficit', 'localizacao']].head(20)
-        df_criticos_display.columns = ['Produto', 'Categoria', 'Estoque Atual', 'Estoque Mínimo', 'Déficit', 'Localização']
+        df_criticos_display = df_criticos[['nome_produto', 'categoria', 'quantidade_estoque', 'estoque_minimo', 'deficit']].head(20)
+        df_criticos_display.columns = ['Produto', 'Categoria', 'Estoque Total', 'Estoque Mínimo', 'Déficit']
         
         st.dataframe(
             df_criticos_display,
@@ -573,7 +602,7 @@ with tab2:
 with tab3:
     st.markdown("Análise de Vendas por Loja")
     
-    if loja_selecionada == 'Todas':
+    if len(lojas_selecionadas) > 1:
         vendas_loja = df_vendas_filtrado.groupby('loja_id').agg({
             'valor_total': 'sum',
             'quantidade_vendida': 'sum',
@@ -619,8 +648,10 @@ with tab3:
             st.plotly_chart(fig, use_container_width=True)
         
         st.dataframe(vendas_loja, use_container_width=True, hide_index=True)
+    elif len(lojas_selecionadas) == 1:
+        st.info(f"Visualizando dados apenas da Loja {lojas_selecionadas[0]}. Selecione múltiplas lojas para comparação.")
     else:
-        st.info(f"Visualizando dados apenas da Loja {loja_selecionada}. Selecione 'Todas' para comparação entre lojas.")
+        st.warning("Selecione ao menos uma loja para visualizar os dados.")
 
 st.markdown("---")
 
@@ -635,10 +666,10 @@ with col1:
     if len(produtos_ruptura) > 0:
         st.error(f"**{len(produtos_ruptura)} produtos** em risco de ruptura de estoque")
         st.markdown("**Ação:** Realizar pedidos de reposição imediatamente")
+        st.caption("_Justificativa: Produtos abaixo do estoque mínimo podem causar perda de vendas e insatisfação dos clientes._")
     else:
         st.success("✓ Nenhum produto em risco de ruptura")
     
-    # Produtos parados (alto estoque, baixa venda)
     if len(df_vendas_filtrado) > 0:
         vendas_por_produto = df_vendas_filtrado.groupby('produto_id')['quantidade_vendida'].sum()
         estoque_alto = df_estoque_filtrado[df_estoque_filtrado['quantidade_estoque'] > df_estoque_filtrado['estoque_minimo'] * 2]
@@ -652,19 +683,19 @@ with col1:
         if len(produtos_parados) > 0:
             st.warning(f"**{len(produtos_parados)} produtos** com excesso de estoque e baixa venda")
             st.markdown("**Ação:** Considerar promoções ou descontos")
+            st.caption("_Justificativa: Reduzir o capital imobilizado e liberar espaço físico no estoque._")
         else:
             st.success("✓ Estoque proporcional às vendas")
 
 with col2:
     st.markdown("**Oportunidades**")
     
-    # Produtos mais vendidos
     if len(df_vendas_filtrado) > 0:
         top_5_vendas = df_vendas_filtrado.groupby(['produto_id', 'nome_produto'])['quantidade_vendida'].sum().sort_values(ascending=False).head(5)
         st.info(f"**Top 5 produtos** representam oportunidade de marketing")
         st.markdown("**Ação:** Investir em campanhas promocionais")
+        st.caption("_Justificativa: Produtos com alta demanda têm maior potencial de retorno sobre investimento em marketing._")
         
-        # Melhor fornecedor
         if len(df_compras_filtrado) > 0:
             fornecedores = df_compras_filtrado[df_compras_filtrado['status_compra'] == 'Entregue'].groupby('fornecedor').agg({
                 'prazo_entrega_dias': 'mean',
@@ -675,6 +706,7 @@ with col2:
                 melhor_prazo = fornecedores['prazo_entrega_dias'].idxmin()
                 st.success(f"**Fornecedor recomendado:** {melhor_prazo}")
                 st.markdown("**Ação:** Priorizar parcerias estratégicas")
+                st.caption("_Justificativa: Menor prazo de entrega reduz tempo de reposição e risco de ruptura de estoque._")
 
 
 st.markdown("### Análise por Categoria")
@@ -703,6 +735,6 @@ if len(df_vendas_filtrado) > 0:
     )
     st.plotly_chart(fig, use_container_width=True)
 
-# Footer
 st.markdown("---")
-st.markdown("<p style='text-align: center; color: #808080;'>Super-Dashboard Integrado • Desenvolvido com Streamlit e Python</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #808080;'>Super-Dashboard Integrado | Desenvolvido para a cadeira de Fundamentos em Ciência da Dados 2025.2</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #808080;'>2025 - Rafael Alves</p>", unsafe_allow_html=True)
